@@ -1,0 +1,208 @@
+---
+title: "final"
+author: "许凌瀚"
+date: '2022-05-27'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+ install.packages('lubridate')
+```
+
+```{r}
+library(fpp3)
+library(Rcpp)
+library(rlang)
+library(dplyr)
+library(prophet)
+library(lubridate)
+```
+
+```{r}
+data_test <- read.csv("hour_result.csv",head=T)
+```
+
+```{r}
+#汇总数据
+test <- aggregate(data_test$started_at, list(data_test$started_at_day), FUN=sum)
+
+names(test)[names(test) =="Group.1"] <-"date"
+names(test)[names(test) =="x"] <-"number"
+
+show(test)
+```
+
+```{r}
+#更改列表名称
+test=test %>%
+mutate(mth = as_datetime(date))
+ts_test = as_tsibble(test, index = mth)
+
+```
+
+```{r}
+#填充间隔值
+ts_test<-ts_test %>%
+  fill_gaps(number=0)
+```
+
+```{r}
+#去除无效列表
+ts_test <- select(ts_test,-date)
+```
+
+```{r}
+#数据差分
+ts_test %>%
+  autoplot()
+
+ts_test %>%  
+  gg_tsdisplay(difference(number,24) %>% difference() %>% difference(),
+               plot_type = "partial") + labs(title = "Double differenced" , y="")
+ts_test_spilt <- ts_test %>%
+  filter(as_datetime(mth) <= as_datetime("2020-08-24 23:00:00"),as_datetime(mth) >= as_datetime("2020-08-01 00:00:00"))
+ts_test_spilt %>%  
+  gg_tsdisplay(difference(number,24) %>% difference() %>% difference(),
+               plot_type = "partial") + labs(title = "Double differenced" , y="")
+
+```
+
+
+```{r}
+#拆分测试集
+show(ts_test)
+ts_test_2021 <- ts_test %>%
+  filter(as_datetime(mth) <= as_datetime("2022-01-31 23:00:00"),as_datetime(mth) >= as_datetime("2022-01-01 00:00:00"))
+show(ts_test_2021)
+```
+
+```{r}
+#STL分解
+ts_test_2021 %>%
+  model(
+    STL(number ~ trend(window = 7) +
+                   season(window = 24),
+    robust = TRUE)) %>%
+  components() %>%
+  autoplot()
+```
+
+
+
+```{r}
+#ETS模型
+ts_test_2021 %>%
+  slice(1:(n()-1))%>%
+  stretch_tsibble(.init = 10) %>%
+  model(
+    SES = ETS(number ~ trend("N") + season("N"), opt_crit = "mse"),
+    Holt = ETS(number ~ trend("A") + season("N"), opt_crit = "mse"),
+    Damped = ETS(number ~ trend("Ad") + season("N"), opt_crit = "mse"),
+    additive = ETS(number ~ trend("A") + season("A"), opt_crit = "mse"),
+    multiplicative = ETS(number ~trend("A") + season("M"), opt_crit = "mse")
+  ) %>%
+  forecast(h = 1) %>%
+  accuracy(ts_test_2021)
+```
+
+
+```{r}
+#ARIMA
+fit <- ts_test_2021 %>%
+  model(ARIMA(number~pdq(0,1,2) + PDQ(0,1,0)))
+number_2022 <- ts_test %>%
+  filter(as_datetime(mth)>= as_datetime("2022-02-01 00:00:00"))
+number_forecast <- fit %>%
+  forecast(number_2022)
+number_forecast %>%
+  autoplot(bind_rows(ts_test_2021,number_2022),level=NULL)+guides(colour = guide_legend(title = "Forecast"))
+
+```
+
+
+
+```{r}
+#周中ARIMA
+test_weekday <- read.csv("hour_weekday.csv",head=T)
+
+
+names(test_weekday)[names(test_weekday) =="started_at"] <-"number"
+show(test_weekday)
+
+ts_test_weekday = as_tsibble(test_weekday, index = date)
+ts_test_weekday <- select(ts_test_weekday,-dat.hour.time)
+
+ts_test_weekday_2021 <- ts_test %>%
+  filter(as_datetime(mth) <= as_datetime("2020-08-24 23:00:00"),as_datetime(mth) >= as_datetime("2020-08-01 00:00:00"))
+
+fit <- ts_test_weekday_2021 %>%
+  model(ARIMA(number~pdq(1,0,0) + PDQ(0,1,0)))
+  
+
+number_weekday_2022 <- ts_test %>%
+  filter(as_datetime(mth)<= as_datetime("2020-08-31 00:00:00"),as_datetime(mth) >= as_datetime("2020-08-25 00:00:00"))
+
+number_forecast_weekday <- fit %>%
+  forecast(number_weekday_2022)
+number_forecast_weekday %>%
+  autoplot(bind_rows(ts_test_weekday_2021,number_weekday_2022),level=NULL)+guides(colour = guide_legend(title = "Forecast"))
+```
+
+
+
+
+
+
+
+```{r}
+#周末ARIMA
+test_weekend <- read.csv("hour_weekend.csv",head=T)
+
+
+names(test_weekend)[names(test_weekend) =="started_at"] <-"number"
+show(test_weekend)
+
+ts_test_weekend = as_tsibble(test_weekend, index = date)
+ts_test_weekend <- select(ts_test_weekend,-dat.hour.time)
+
+ts_test_weekend_2021 <- ts_test %>%
+  filter(as_datetime(mth) <= as_datetime("2019-08-31 23:00:00"),as_datetime(mth) >= as_datetime("2019-08-01 00:00:00"))
+
+fit <- ts_test_weekend_2021 %>%
+  model(ARIMA(number~pdq(1,0,0) + PDQ(0,1,0)))
+  
+
+number_weekend_2022 <- ts_test %>%
+  filter(as_datetime(mth)<= as_datetime("2019-09-03 00:00:00"),as_datetime(mth) >= as_datetime("2019-09-01 00:00:00"))
+
+number_forecast_weekend <- fit %>%
+  forecast(number_weekend_2022)
+number_forecast_weekend %>%
+  autoplot(bind_rows(ts_test_weekend_2021,number_weekend_2022),level=NULL)+guides(colour = guide_legend(title = "Forecast"))
+```
+
+
+

@@ -14,4 +14,6 @@ Cyclistic in Chicago (2019-2022)
 ### Output
  - hourly prediction (upcoming 7*24 hours)
  - daily prediction (upcoming 30 days)
+
+
 access the final report(pdf file) for complete analysis

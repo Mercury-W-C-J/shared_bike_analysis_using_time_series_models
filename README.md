@@ -1,1 +1,2 @@
-# shared_bike_analysis_using_time_series_models
+# Shared Bikes Analysis
+## data: Cyclistic in Chicago (2019-2022)
